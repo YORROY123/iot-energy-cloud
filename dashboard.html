@@ -200,10 +200,22 @@ const chart = new Chart(ctx, {
   options: {
     animation: false,
     scales: {
-      x: { display: false },
+      x: {
+        display: true,
+        ticks: {
+          color: '#888',
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 8,   // 最多顯示 8 個時間刻度，避免擁擠
+        },
+        grid: { color: '#1f2230' }
+      },
       y: { ticks: { color: '#888' }, grid: { color: '#2a2d3a' } }
     },
-    plugins: { legend: { labels: { color: '#888', boxWidth: 12 } } }
+    plugins: {
+      legend: { labels: { color: '#888', boxWidth: 12 } },
+      tooltip: { enabled: true }   // 滑鼠移上去顯示該時間點數值
+    }
   }
 });
 

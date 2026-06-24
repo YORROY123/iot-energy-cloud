@@ -274,6 +274,7 @@ WS   /ws/{client_id}                    即時資料推播
 | [05-技術探討](docs/05-技術探討.md) | 為何選 EMQX、InfluxDB vs TimescaleDB、QoS 策略 |
 | [06-免費雲端部署](docs/06-免費雲端部署.md) | Render + InfluxDB Cloud + Upstash + GitHub Pages 零成本 Demo |
 | [07-模擬與實際的差距](docs/07-模擬與實際的差距.md) | Demo 模擬資料流 vs 真實感測器部署的逐項對照 |
+| [08-疑難排解-看板卡頓](docs/08-疑難排解-看板卡頓.md) | WebSocket 半開連線除錯記錄與解法（看門狗 + 推播優先）|
 
 ---
 
