@@ -162,28 +162,67 @@ def get_device_history(
     return points
 
 
+def _parse_iso_utc(s: str) -> datetime:
+    """把 ISO 字串（含 'Z'）解析成帶 UTC 時區的 datetime。"""
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"invalid datetime: {s}")
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _auto_window_seconds(span_seconds: float) -> int:
+    """依時間跨度自動決定降採樣區間，目標約 300 個點。最少 5 秒。"""
+    return max(5, int(span_seconds // 300) or 5)
+
+
 @router.get("/history", response_model=List[HistoryPoint])
 def get_history_direct(
     device_uid: str = Query(..., description="設備唯一識別碼，例如 meter01"),
-    time_range: str = Query("1h", alias="range", description="15m / 1h / 6h / 24h / 7d / 30d"),
+    time_range: Optional[str] = Query(None, alias="range", description="相對範圍：15m / 1h / 6h / 24h / 7d / 30d"),
+    start: Optional[str] = Query(None, description="絕對起始時間（ISO，如 2026-06-01T00:00:00Z）"),
+    end: Optional[str] = Query(None, description="絕對結束時間（ISO）"),
     influx=Depends(get_influx_query_api),
 ) -> List[HistoryPoint]:
     """
-    直接從 InfluxDB 撈指定設備、指定時間範圍的歷史資料（不依賴 PostgreSQL）。
-    長時間範圍會自動降採樣（aggregateWindow），避免回傳過多資料點。
+    直接從 InfluxDB 撈指定設備的歷史資料（不依賴 PostgreSQL）。
+
+    兩種查詢方式擇一：
+    1. 絕對區間：?start=2026-06-01T00:00:00Z&end=2026-06-24T00:00:00Z
+    2. 相對範圍：?range=24h
+
+    長時間跨度會自動降採樣（aggregateWindow），避免回傳過多資料點。
     """
     if not _UID_RE.match(device_uid):
         raise HTTPException(status_code=400, detail="invalid device_uid")
-    if time_range not in _RANGE_PRESETS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"invalid range; allowed: {', '.join(_RANGE_PRESETS)}",
-        )
 
-    start, every = _RANGE_PRESETS[time_range]
+    # --- 決定 Flux 的 range() 與降採樣區間 ---
+    if start and end:
+        start_dt = _parse_iso_utc(start)
+        end_dt = _parse_iso_utc(end)
+        if end_dt <= start_dt:
+            raise HTTPException(status_code=400, detail="end must be after start")
+        span = (end_dt - start_dt).total_seconds()
+        if span > 366 * 24 * 3600:
+            raise HTTPException(status_code=400, detail="range too large (max 366 days)")
+        every = f"{_auto_window_seconds(span)}s"
+        range_clause = (
+            f'range(start: {start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")}, '
+            f'stop: {end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")})'
+        )
+    else:
+        preset = time_range or "1h"
+        if preset not in _RANGE_PRESETS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"invalid range; allowed: {', '.join(_RANGE_PRESETS)}",
+            )
+        rel_start, every = _RANGE_PRESETS[preset]
+        range_clause = f"range(start: {rel_start})"
+
     flux = (
         f'from(bucket: "realtime")\n'
-        f'  |> range(start: {start})\n'
+        f'  |> {range_clause}\n'
         f'  |> filter(fn: (r) => r["_measurement"] == "sensor_data")\n'
         f'  |> filter(fn: (r) => r["device_uid"] == "{device_uid}")\n'
         f'  |> aggregateWindow(every: {every}, fn: mean, createEmpty: false)\n'

@@ -10,6 +10,8 @@
 
 ## 🚀 線上 Demo
 
+![即時監控看板](docs/images/dashboard.png)
+
 | 入口 | 網址 |
 |---|---|
 | **即時監控看板** | **https://yorroy123.github.io/iot-energy-cloud/dashboard.html** |

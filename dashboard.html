@@ -89,6 +89,17 @@
   .range-buttons button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
   #histStatus { font-size: 12px; color: #666; }
 
+  #histStart, #histEnd {
+    background: #0f1117; color: #e0e0e0; border: 1px solid #2a2d3a;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+    color-scheme: dark;
+  }
+  .query-btn {
+    background: #2563eb; color: #fff; border: none;
+    border-radius: 6px; padding: 6px 16px; font-size: 13px; cursor: pointer;
+  }
+  .query-btn:hover { background: #1d4ed8; }
+
   .log-section { padding: 0 20px 20px; }
   .log-box {
     background: #1a1d27;
@@ -129,6 +140,10 @@
       <h3>歷史查詢（從資料庫撈）</h3>
       <div class="history-controls">
         <select id="histDevice"></select>
+        <input type="datetime-local" id="histStart" step="1">
+        <span style="color:#666;">到</span>
+        <input type="datetime-local" id="histEnd" step="1">
+        <button id="histQuery" class="query-btn">查詢</button>
         <div class="range-buttons" id="rangeButtons"></div>
         <span id="histStatus"></span>
       </div>
@@ -352,41 +367,55 @@ const HIST_DEVICES = [
   { uid: 'meter04',  label: 'C002/S004 電表 meter04 (電力)' },
   { uid: 'humid02',  label: 'C002/S004 濕度 humid02 (濕度)' },
 ];
-const RANGES = [
-  { key: '15m', label: '15分鐘' },
-  { key: '1h',  label: '1小時' },
-  { key: '6h',  label: '6小時' },
-  { key: '24h', label: '24小時' },
-  { key: '7d',  label: '7天' },
-  { key: '30d', label: '30天' },
+// 快速範圍：點一下自動把「起訖時間」填成 (現在 - delta) 到 現在
+const QUICK_RANGES = [
+  { label: '15分鐘', ms: 15 * 60 * 1000 },
+  { label: '1小時',  ms: 60 * 60 * 1000 },
+  { label: '6小時',  ms: 6 * 60 * 60 * 1000 },
+  { label: '24小時', ms: 24 * 60 * 60 * 1000 },
+  { label: '7天',    ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: '30天',   ms: 30 * 24 * 60 * 60 * 1000 },
 ];
 
-let _histRange = '1h';
+const histDeviceSel = document.getElementById('histDevice');
+const histStartEl = document.getElementById('histStart');
+const histEndEl = document.getElementById('histEnd');
 
 // 填入裝置下拉選單
-const histDeviceSel = document.getElementById('histDevice');
 HIST_DEVICES.forEach(d => {
   const opt = document.createElement('option');
   opt.value = d.uid; opt.textContent = d.label;
   histDeviceSel.appendChild(opt);
 });
 
-// 建立範圍按鈕
+// 把 Date 轉成 datetime-local 輸入框需要的字串（本地時區，到秒）
+function toLocalInput(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// 預設：最近 1 小時
+(function initDates() {
+  const now = new Date();
+  histEndEl.value = toLocalInput(now);
+  histStartEl.value = toLocalInput(new Date(now - 60 * 60 * 1000));
+})();
+
+// 快速範圍按鈕：填入起訖時間並查詢
 const rangeBtnBox = document.getElementById('rangeButtons');
-RANGES.forEach(r => {
+QUICK_RANGES.forEach(r => {
   const btn = document.createElement('button');
   btn.textContent = r.label;
-  btn.dataset.range = r.key;
-  if (r.key === _histRange) btn.classList.add('active');
   btn.onclick = () => {
-    _histRange = r.key;
-    document.querySelectorAll('#rangeButtons button').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+    const now = new Date();
+    histEndEl.value = toLocalInput(now);
+    histStartEl.value = toLocalInput(new Date(now - r.ms));
     loadHistory();
   };
   rangeBtnBox.appendChild(btn);
 });
 
+document.getElementById('histQuery').onclick = loadHistory;
 histDeviceSel.onchange = loadHistory;
 
 // 歷史圖表
@@ -410,18 +439,36 @@ const historyChart = new Chart(histCtx, {
 async function loadHistory() {
   const uid = histDeviceSel.value;
   const status = document.getElementById('histStatus');
+
+  if (!histStartEl.value || !histEndEl.value) {
+    status.textContent = '請選擇起訖時間';
+    return;
+  }
+  // datetime-local 視為本地時間 → 轉成 UTC ISO 傳給後端
+  const startISO = new Date(histStartEl.value).toISOString();
+  const endISO = new Date(histEndEl.value).toISOString();
+  if (new Date(startISO) >= new Date(endISO)) {
+    status.textContent = '結束時間需晚於起始時間';
+    return;
+  }
+  const spanMs = new Date(endISO) - new Date(startISO);
+
   status.textContent = '查詢中…';
   try {
-    const res = await fetch(`${_backendBase}/api/history?device_uid=${uid}&range=${_histRange}`);
+    const url = `${_backendBase}/api/history?device_uid=${uid}`
+      + `&start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const points = await res.json();
 
+    const oneDay = 24 * 60 * 60 * 1000;
     historyChart.data.labels = points.map(p => {
       const d = new Date(p.ts);
-      // 短範圍顯示時:分:秒，長範圍顯示月/日 時:分
-      return (_histRange === '15m' || _histRange === '1h')
+      const pad = n => String(n).padStart(2, '0');
+      // 跨度 <= 1 天顯示時:分:秒，否則顯示 月/日 時:分
+      return spanMs <= oneDay
         ? d.toLocaleTimeString('zh-TW')
-        : `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+        : `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     });
     historyChart.data.datasets[0].data = points.map(p => p.value);
     historyChart.data.datasets[0].label = uid;
