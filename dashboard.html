@@ -70,6 +70,25 @@
   .chart-box h3 { font-size: 14px; color: #888; margin-bottom: 12px; }
   canvas { max-height: 200px; }
 
+  .history-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 12px;
+  }
+  .history-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #histDevice {
+    background: #0f1117; color: #e0e0e0; border: 1px solid #2a2d3a;
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer;
+  }
+  .range-buttons { display: flex; gap: 4px; }
+  .range-buttons button {
+    background: #0f1117; color: #888; border: 1px solid #2a2d3a;
+    border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .range-buttons button:hover { color: #e0e0e0; border-color: #3b82f6; }
+  .range-buttons button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  #histStatus { font-size: 12px; color: #666; }
+
   .log-section { padding: 0 20px 20px; }
   .log-box {
     background: #1a1d27;
@@ -101,6 +120,20 @@
   <div class="chart-box">
     <h3>即時電力趨勢（最近 60 筆）</h3>
     <canvas id="powerChart"></canvas>
+  </div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-box">
+    <div class="history-header">
+      <h3>歷史查詢（從資料庫撈）</h3>
+      <div class="history-controls">
+        <select id="histDevice"></select>
+        <div class="range-buttons" id="rangeButtons"></div>
+        <span id="histStatus"></span>
+      </div>
+    </div>
+    <canvas id="historyChart"></canvas>
   </div>
 </div>
 
@@ -303,6 +336,105 @@ function connect() {
 }
 
 connect();
+
+// ===================== 歷史查詢（從資料庫撈） =====================
+const HIST_DEVICES = [
+  { uid: 'fridge01', label: 'C001/S001 冷藏 fridge01 (溫度)' },
+  { uid: 'fridge02', label: 'C001/S001 冷藏 fridge02 (溫度)' },
+  { uid: 'meter01',  label: 'C001/S001 電表 meter01 (電力)' },
+  { uid: 'humid01',  label: 'C001/S002 濕度 humid01 (濕度)' },
+  { uid: 'co2_01',   label: 'C001/S002 co2_01 (CO₂)' },
+  { uid: 'meter02',  label: 'C001/S002 電表 meter02 (電力)' },
+  { uid: 'fridge03', label: 'C002/S003 冷藏 fridge03 (溫度)' },
+  { uid: 'fridge04', label: 'C002/S003 冷藏 fridge04 (溫度)' },
+  { uid: 'meter03',  label: 'C002/S003 電表 meter03 (電力)' },
+  { uid: 'fridge05', label: 'C002/S004 冷藏 fridge05 (溫度)' },
+  { uid: 'meter04',  label: 'C002/S004 電表 meter04 (電力)' },
+  { uid: 'humid02',  label: 'C002/S004 濕度 humid02 (濕度)' },
+];
+const RANGES = [
+  { key: '15m', label: '15分鐘' },
+  { key: '1h',  label: '1小時' },
+  { key: '6h',  label: '6小時' },
+  { key: '24h', label: '24小時' },
+  { key: '7d',  label: '7天' },
+  { key: '30d', label: '30天' },
+];
+
+let _histRange = '1h';
+
+// 填入裝置下拉選單
+const histDeviceSel = document.getElementById('histDevice');
+HIST_DEVICES.forEach(d => {
+  const opt = document.createElement('option');
+  opt.value = d.uid; opt.textContent = d.label;
+  histDeviceSel.appendChild(opt);
+});
+
+// 建立範圍按鈕
+const rangeBtnBox = document.getElementById('rangeButtons');
+RANGES.forEach(r => {
+  const btn = document.createElement('button');
+  btn.textContent = r.label;
+  btn.dataset.range = r.key;
+  if (r.key === _histRange) btn.classList.add('active');
+  btn.onclick = () => {
+    _histRange = r.key;
+    document.querySelectorAll('#rangeButtons button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadHistory();
+  };
+  rangeBtnBox.appendChild(btn);
+});
+
+histDeviceSel.onchange = loadHistory;
+
+// 歷史圖表
+const histCtx = document.getElementById('historyChart').getContext('2d');
+const historyChart = new Chart(histCtx, {
+  type: 'line',
+  data: { labels: [], datasets: [{
+    label: '', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
+    borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true,
+  }]},
+  options: {
+    animation: false,
+    scales: {
+      x: { ticks: { color: '#888', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { color: '#1f2230' } },
+      y: { ticks: { color: '#888' }, grid: { color: '#2a2d3a' } }
+    },
+    plugins: { legend: { display: false }, tooltip: { enabled: true } }
+  }
+});
+
+async function loadHistory() {
+  const uid = histDeviceSel.value;
+  const status = document.getElementById('histStatus');
+  status.textContent = '查詢中…';
+  try {
+    const res = await fetch(`${_backendBase}/api/history?device_uid=${uid}&range=${_histRange}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const points = await res.json();
+
+    historyChart.data.labels = points.map(p => {
+      const d = new Date(p.ts);
+      // 短範圍顯示時:分:秒，長範圍顯示月/日 時:分
+      return (_histRange === '15m' || _histRange === '1h')
+        ? d.toLocaleTimeString('zh-TW')
+        : `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+    });
+    historyChart.data.datasets[0].data = points.map(p => p.value);
+    historyChart.data.datasets[0].label = uid;
+    historyChart.update('none');
+
+    status.textContent = points.length ? `共 ${points.length} 筆` : '此範圍無資料';
+  } catch (err) {
+    status.textContent = `查詢失敗：${err.message}`;
+  }
+}
+
+// 首次載入先撈一次
+loadHistory();
 </script>
 </body>
 </html>

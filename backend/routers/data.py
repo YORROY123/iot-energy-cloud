@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
@@ -10,6 +11,19 @@ from sqlalchemy.orm import Session
 from database import get_db, get_influx_query_api
 
 router = APIRouter()
+
+# 時間範圍 → (Flux range start, aggregateWindow 區間)
+# aggregateWindow 用來降採樣，讓長時間範圍也只回傳約 120~200 個點。
+_RANGE_PRESETS: dict[str, tuple[str, str]] = {
+    "15m": ("-15m", "10s"),
+    "1h":  ("-1h",  "30s"),
+    "6h":  ("-6h",  "3m"),
+    "24h": ("-24h", "12m"),
+    "7d":  ("-7d",  "1h"),
+    "30d": ("-30d", "6h"),
+}
+
+_UID_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 class LatestReading(BaseModel):
@@ -144,6 +158,51 @@ def get_device_history(
             except (TypeError, ValueError):
                 continue
             points.append(HistoryPoint(ts=ts, value=value))
+
+    return points
+
+
+@router.get("/history", response_model=List[HistoryPoint])
+def get_history_direct(
+    device_uid: str = Query(..., description="設備唯一識別碼，例如 meter01"),
+    time_range: str = Query("1h", alias="range", description="15m / 1h / 6h / 24h / 7d / 30d"),
+    influx=Depends(get_influx_query_api),
+) -> List[HistoryPoint]:
+    """
+    直接從 InfluxDB 撈指定設備、指定時間範圍的歷史資料（不依賴 PostgreSQL）。
+    長時間範圍會自動降採樣（aggregateWindow），避免回傳過多資料點。
+    """
+    if not _UID_RE.match(device_uid):
+        raise HTTPException(status_code=400, detail="invalid device_uid")
+    if time_range not in _RANGE_PRESETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid range; allowed: {', '.join(_RANGE_PRESETS)}",
+        )
+
+    start, every = _RANGE_PRESETS[time_range]
+    flux = (
+        f'from(bucket: "realtime")\n'
+        f'  |> range(start: {start})\n'
+        f'  |> filter(fn: (r) => r["_measurement"] == "sensor_data")\n'
+        f'  |> filter(fn: (r) => r["device_uid"] == "{device_uid}")\n'
+        f'  |> aggregateWindow(every: {every}, fn: mean, createEmpty: false)\n'
+        f'  |> keep(columns: ["_time", "_value"])\n'
+        f'  |> sort(columns: ["_time"])'
+    )
+
+    points: List[HistoryPoint] = []
+    for table in influx.query(flux):
+        for record in table.records:
+            ts_raw = record.get_time()
+            if not isinstance(ts_raw, datetime):
+                continue
+            ts = ts_raw if ts_raw.tzinfo else ts_raw.replace(tzinfo=timezone.utc)
+            try:
+                value = float(record.get_value())
+            except (TypeError, ValueError):
+                continue
+            points.append(HistoryPoint(ts=ts, value=round(value, 2)))
 
     return points
 
