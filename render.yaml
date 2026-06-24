@@ -14,8 +14,12 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      # 真實 MQTT 流程：後端內建發布執行緒 → broker.hivemq.com → 後端訂閱
+      # （Render 免費版無獨立 worker，故發布器跑在後端的一條 daemon thread）
       - key: DEMO_MODE
         value: "false"
+      - key: RUN_SIMULATOR
+        value: "true"
       - key: MQTT_HOST
         value: broker.hivemq.com
       - key: MQTT_PORT
@@ -34,16 +38,3 @@ services:
         value: realtime
       - key: REDIS_URL
         sync: false
-
-  - type: worker
-    name: iot-energy-cloud-simulator
-    env: python
-    plan: free
-    rootDir: simulator
-    buildCommand: pip install paho-mqtt>=2.0.0
-    startCommand: python main.py
-    envVars:
-      - key: MQTT_HOST
-        value: broker.hivemq.com
-      - key: MQTT_PORT
-        value: "1883"

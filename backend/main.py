@@ -20,6 +20,7 @@ from routers import data, control
 from sqlalchemy import text
 
 DEMO_MODE: bool = os.getenv("DEMO_MODE", "false").lower() == "true"
+RUN_SIMULATOR: bool = os.getenv("RUN_SIMULATOR", "false").lower() == "true"
 
 # 12 virtual devices (mirrors simulator/main.py)
 _DEMO_DEVICES = [
@@ -123,6 +124,16 @@ async def lifespan(app: FastAPI):
             daemon=True,
             name="mqtt-subscriber",
         ).start()
+
+        # Cloud demo: also publish simulated data to the same MQTT broker
+        # (Render free tier has no separate worker, so we run it here).
+        if RUN_SIMULATOR:
+            from simulator_pub import start_publisher
+            threading.Thread(
+                target=start_publisher,
+                daemon=True,
+                name="mqtt-simulator-publisher",
+            ).start()
 
     yield
 
