@@ -6,7 +6,7 @@ import time as time_module
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import (
@@ -21,6 +21,19 @@ from sqlalchemy import text
 
 DEMO_MODE: bool = os.getenv("DEMO_MODE", "false").lower() == "true"
 RUN_SIMULATOR: bool = os.getenv("RUN_SIMULATOR", "false").lower() == "true"
+# 管理金鑰：設定後，踢人等管理操作需帶此金鑰。未設定則代表無保護（僅 Demo）。
+ADMIN_KEY: str = os.getenv("ADMIN_KEY", "")
+
+# 後端啟動時間（用於計算 uptime）
+_START_TS = time_module.time()
+
+try:
+    import psutil
+    _PROC = psutil.Process()
+    _PROC.cpu_percent(interval=None)  # 第一次呼叫先初始化，之後才有意義
+except Exception:
+    psutil = None
+    _PROC = None
 
 # 12 virtual devices (mirrors simulator/main.py)
 _DEMO_DEVICES = [
@@ -167,8 +180,28 @@ def stats():
     return {"online": ws_manager.count()}
 
 
-# 後端啟動時間，用於計算 uptime
-_START_TS = None
+def _system_metrics() -> dict:
+    """讀取後端程序的 CPU / 記憶體用量。psutil 不可用時回傳 None 值。"""
+    metrics = {
+        "cpu_percent": None,
+        "mem_used_mb": None,
+        "mem_percent": None,
+        "uptime_seconds": int(time_module.time() - _START_TS),
+    }
+    if _PROC is None:
+        return metrics
+    try:
+        # 程序記憶體 (RSS)
+        rss = _PROC.memory_info().rss
+        metrics["mem_used_mb"] = round(rss / (1024 * 1024), 1)
+        # 系統記憶體使用率
+        vm = psutil.virtual_memory()
+        metrics["mem_percent"] = round(vm.percent, 1)
+        # 系統 CPU 使用率（短暫取樣）
+        metrics["cpu_percent"] = round(psutil.cpu_percent(interval=0.3), 1)
+    except Exception:
+        pass
+    return metrics
 
 
 @app.get("/admin/overview")
@@ -233,13 +266,42 @@ def admin_overview():
         "devices_online": online_devices,
         "total_points_24h": total_points_24h,
         "server_time": datetime.now(timezone.utc).isoformat(),
+        "system": _system_metrics(),
         "devices": devices,
     }
 
 
+def _check_admin_key(key: Optional[str]) -> None:
+    """若有設定 ADMIN_KEY，則管理操作需帶正確金鑰。"""
+    if ADMIN_KEY and key != ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="invalid admin key")
+
+
+@app.get("/admin/clients")
+def admin_clients():
+    """目前所有線上連線清單（client_id / IP / 連線時長）。"""
+    return {"clients": ws_manager.list_clients(), "protected": bool(ADMIN_KEY)}
+
+
+@app.post("/admin/kick/{client_id}")
+async def admin_kick(client_id: str, x_admin_key: Optional[str] = Header(None)):
+    """踢除指定連線。若有設定 ADMIN_KEY，需在 X-Admin-Key 標頭帶金鑰。"""
+    _check_admin_key(x_admin_key)
+    ok = await ws_manager.kick(client_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="client not found")
+    # 踢除後廣播最新人數
+    try:
+        await ws_manager.broadcast({"type": "online_count", "count": ws_manager.count()})
+    except Exception:
+        pass
+    return {"status": "kicked", "client_id": client_id}
+
+
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str) -> None:
-    await ws_manager.connect(client_id, websocket)
+    client_ip = websocket.client.host if websocket.client else ""
+    await ws_manager.connect(client_id, websocket, ip=client_ip)
     # 通知所有人最新線上人數
     await ws_manager.broadcast({"type": "online_count", "count": ws_manager.count()})
     try:

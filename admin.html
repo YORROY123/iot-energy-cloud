@@ -54,6 +54,13 @@
   .type-co2 { color: #a78bfa; }
 
   #error { color: #ef4444; font-size: 13px; margin-bottom: 16px; }
+
+  .kick-btn {
+    background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+  }
+  .kick-btn:hover { background: #ef4444; color: #fff; }
+  .self-tag { font-size: 11px; color: #555; }
 </style>
 </head>
 <body>
@@ -93,6 +100,42 @@
     </div>
   </div>
 
+  <div class="section-title">系統資源</div>
+  <div class="cards">
+    <div class="card">
+      <div class="label">後端記憶體 (RAM)</div>
+      <div class="value"><span id="mem-mb">—</span><span style="font-size:16px;color:#888;"> MB</span></div>
+      <div class="sub">程序實際佔用 / 免費版上限 512 MB</div>
+    </div>
+    <div class="card">
+      <div class="label">系統 CPU 使用率</div>
+      <div class="value"><span id="cpu-pct">—</span><span style="font-size:16px;color:#888;"> %</span></div>
+      <div class="sub">免費版僅 0.1 核，偏高即為瓶頸</div>
+    </div>
+    <div class="card">
+      <div class="label">系統記憶體使用率</div>
+      <div class="value"><span id="sysmem-pct">—</span><span style="font-size:16px;color:#888;"> %</span></div>
+      <div class="sub">主機整體記憶體占用</div>
+    </div>
+    <div class="card">
+      <div class="label">後端運行時間</div>
+      <div class="value" id="uptime" style="font-size:22px;">—</div>
+      <div class="sub">距上次部署/冷啟動</div>
+    </div>
+  </div>
+
+  <div class="section-title">線上連線（可踢除）</div>
+  <table style="margin-bottom:24px;">
+    <thead>
+      <tr>
+        <th>連線 ID</th><th>來源 IP</th><th>連線時長</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="client-rows">
+      <tr><td colspan="4" style="text-align:center; color:#666;">載入中…</td></tr>
+    </tbody>
+  </table>
+
   <div class="section-title">設備狀態清單</div>
   <table>
     <thead>
@@ -126,8 +169,70 @@ function relTime(iso) {
   return `${Math.round(sec/3600)} 小時前`;
 }
 
+function fmtUptime(sec) {
+  if (sec == null) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d} 天 ${h} 時`;
+  if (h > 0) return `${h} 時 ${m} 分`;
+  return `${m} 分 ${sec % 60} 秒`;
+}
+
+function fmtDuration(sec) {
+  if (sec == null) return '—';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}時${m}分`;
+  if (m > 0) return `${m}分${s}秒`;
+  return `${s}秒`;
+}
+
+async function kickClient(clientId) {
+  if (!confirm(`確定要踢除連線 ${clientId} 嗎？`)) return;
+  // 若後端有設金鑰，從 localStorage 取，沒有就詢問
+  let key = localStorage.getItem('admin_key') || '';
+  const headers = {};
+  if (key) headers['X-Admin-Key'] = key;
+  try {
+    let res = await fetch(`${_backendBase}/admin/kick/${clientId}`, { method: 'POST', headers });
+    if (res.status === 401) {
+      key = prompt('需要管理金鑰才能踢人，請輸入 ADMIN_KEY：') || '';
+      if (!key) return;
+      localStorage.setItem('admin_key', key);
+      res = await fetch(`${_backendBase}/admin/kick/${clientId}`, {
+        method: 'POST', headers: { 'X-Admin-Key': key }
+      });
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    loadClients();
+  } catch (err) {
+    alert(`踢除失敗：${err.message}`);
+  }
+}
+
+async function loadClients() {
+  try {
+    const res = await fetch(`${_backendBase}/admin/clients`);
+    if (!res.ok) return;
+    const d = await res.json();
+    const rows = (d.clients || []).map(c => `
+      <tr>
+        <td>${c.client_id}</td>
+        <td>${c.ip || '—'}</td>
+        <td>${fmtDuration(c.connected_seconds)}</td>
+        <td><button class="kick-btn" onclick="kickClient('${c.client_id}')">踢除</button></td>
+      </tr>
+    `).join('');
+    document.getElementById('client-rows').innerHTML = rows ||
+      '<tr><td colspan="4" style="text-align:center; color:#666;">目前無人連線</td></tr>';
+  } catch (_) {}
+}
+
 async function refresh() {
   const errEl = document.getElementById('error');
+  loadClients();
   try {
     const res = await fetch(`${_backendBase}/admin/overview`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -141,6 +246,13 @@ async function refresh() {
     document.getElementById('points-24h').textContent = d.total_points_24h.toLocaleString();
     document.getElementById('mode').textContent = d.demo_mode ? 'DEMO（模擬）' : '正式';
     document.getElementById('server-time').textContent = '伺服器時間 ' + fmtTime(d.server_time);
+
+    // 系統資源
+    const sys = d.system || {};
+    document.getElementById('mem-mb').textContent = sys.mem_used_mb != null ? sys.mem_used_mb : '—';
+    document.getElementById('cpu-pct').textContent = sys.cpu_percent != null ? sys.cpu_percent : '—';
+    document.getElementById('sysmem-pct').textContent = sys.mem_percent != null ? sys.mem_percent : '—';
+    document.getElementById('uptime').textContent = fmtUptime(sys.uptime_seconds);
 
     const rows = d.devices.map(dev => `
       <tr>
