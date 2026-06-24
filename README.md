@@ -1,4 +1,4 @@
-# 永耀雲端 IoT 能源管理平台
+# IoT Energy Cloud — 開源 IoT 能源管理平台
 
 > 多租戶 AIoT 能源監控 SaaS 平台的開源實作參考，涵蓋從現場感測器到雲端看板的完整技術棧。
 
@@ -114,8 +114,8 @@
 ### 一鍵啟動
 
 ```bash
-git clone https://github.com/YORROY123/yongyao-iot-platform.git
-cd yongyao-iot-platform
+git clone https://github.com/YORROY123/iot-energy-cloud.git
+cd iot-energy-cloud
 
 # Windows（需關閉 BuildKit 避免 WSL2 segfault）
 set DOCKER_BUILDKIT=0
@@ -141,7 +141,7 @@ docker compose up --build
 ## 目錄結構
 
 ```
-yongyao-iot-platform/
+iot-energy-cloud/
 ├── docker-compose.yml          # 一鍵啟動所有服務
 ├── dashboard.html              # 即時監控看板（直接瀏覽器開啟）
 │
@@ -210,4 +210,4 @@ WS   /ws/{client_id}                    即時資料推播
 
 ---
 
-> 本專案為技術研究與學習用途。
+> 本專案為技術研究與學習用途，與任何商業廠商無關聯。
