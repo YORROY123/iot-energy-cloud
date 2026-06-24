@@ -15,18 +15,35 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DEMO_MODE
-        value: "true"
+        value: "false"
+      - key: MQTT_HOST
+        value: broker.hivemq.com
+      - key: MQTT_PORT
+        value: "1883"
       - key: POSTGRES_URL
         fromDatabase:
           name: iot-energy-cloud-db
           property: connectionString
       - key: INFLUX_URL
-        sync: false   # 填入 InfluxDB Cloud URL
+        sync: false
       - key: INFLUX_TOKEN
-        sync: false   # 填入 InfluxDB Cloud Token
+        sync: false
       - key: INFLUX_ORG
-        sync: false   # 填入 InfluxDB Cloud Org
+        sync: false
       - key: INFLUX_BUCKET
         value: realtime
       - key: REDIS_URL
-        sync: false   # 填入 Upstash Redis URL
+        sync: false
+
+  - type: worker
+    name: iot-energy-cloud-simulator
+    env: python
+    plan: free
+    rootDir: simulator
+    buildCommand: pip install paho-mqtt>=2.0.0
+    startCommand: python main.py
+    envVars:
+      - key: MQTT_HOST
+        value: broker.hivemq.com
+      - key: MQTT_PORT
+        value: "1883"
