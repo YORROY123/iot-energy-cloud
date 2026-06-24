@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>IESS 雲端智能平台</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1117; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; }
+
+  header {
+    background: #1a1d27;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid #2a2d3a;
+  }
+  header h1 { font-size: 20px; color: #fff; }
+  #status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #555; margin-left: auto;
+  }
+  #status-dot.connected { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  #status-text { font-size: 13px; color: #888; }
+
+  .sites { display: flex; gap: 16px; padding: 20px; flex-wrap: wrap; }
+
+  .site-card {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 12px;
+    padding: 16px;
+    min-width: 320px;
+    flex: 1;
+  }
+  .site-card h2 { font-size: 14px; color: #888; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .site-card h3 { font-size: 16px; color: #fff; margin-bottom: 12px; }
+
+  .device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .device {
+    background: #0f1117;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px;
+    padding: 12px;
+    transition: border-color 0.3s;
+  }
+  .device.anomaly { border-color: #ef4444; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
+
+  .device-name { font-size: 11px; color: #666; margin-bottom: 4px; }
+  .device-value { font-size: 26px; font-weight: bold; }
+  .device-unit { font-size: 12px; color: #888; margin-left: 4px; }
+  .device-time { font-size: 10px; color: #555; margin-top: 4px; }
+
+  .temp   .device-value { color: #38bdf8; }
+  .power  .device-value { color: #f59e0b; }
+  .humid  .device-value { color: #34d399; }
+  .co2    .device-value { color: #a78bfa; }
+  .anomaly .device-value { color: #ef4444 !important; }
+
+  .chart-section { padding: 0 20px 20px; }
+  .chart-box {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .chart-box h3 { font-size: 14px; color: #888; margin-bottom: 12px; }
+  canvas { max-height: 200px; }
+
+  .log-section { padding: 0 20px 20px; }
+  .log-box {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 12px;
+    padding: 16px;
+    height: 150px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 12px;
+  }
+  .log-box p { color: #555; margin-bottom: 4px; }
+  .log-box p.alert { color: #ef4444; }
+  .log-box p.normal { color: #22c55e; }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="width:32px;height:32px;background:#2563eb;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;">i</div>
+  <h1>IESS 雲端智能平台</h1>
+  <span id="status-text">連線中...</span>
+  <div id="status-dot"></div>
+</header>
+
+<div class="sites" id="sites-container"></div>
+
+<div class="chart-section">
+  <div class="chart-box">
+    <h3>即時電力趨勢（最近 60 筆）</h3>
+    <canvas id="powerChart"></canvas>
+  </div>
+</div>
+
+<div class="log-section">
+  <div class="log-box" id="log"></div>
+</div>
+
+<script>
+const UNITS = { temperature: '°C', power: 'W', humidity: '%', co2: 'ppm' };
+const THRESHOLDS = { temperature: { alert: -10 }, power: { alert: 2500 } };
+
+// Device state store: { device_uid: { value, ts, device_type, site_id, customer_id } }
+const state = {};
+
+// Sites layout
+const SITES = {
+  'C001/S001': { label: '客戶C001 — 門市S001', customer: 'C001', site: 'S001' },
+  'C001/S002': { label: '客戶C001 — 門市S002', customer: 'C001', site: 'S002' },
+  'C002/S003': { label: '客戶C002 — 門市S003', customer: 'C002', site: 'S003' },
+  'C002/S004': { label: '客戶C002 — 門市S004', customer: 'C002', site: 'S004' },
+};
+
+// Build site cards
+const sitesContainer = document.getElementById('sites-container');
+Object.entries(SITES).forEach(([key, info]) => {
+  const card = document.createElement('div');
+  card.className = 'site-card';
+  card.innerHTML = `<h2>${info.customer}</h2><h3>${info.label}</h3><div class="device-grid" id="grid-${info.customer}-${info.site}"></div>`;
+  sitesContainer.appendChild(card);
+});
+
+function getGrid(customer, site) {
+  return document.getElementById(`grid-${customer}-${site}`);
+}
+
+function getDeviceEl(uid) {
+  return document.getElementById(`dev-${uid}`);
+}
+
+function createDeviceEl(uid, dtype) {
+  const div = document.createElement('div');
+  div.className = `device ${dtype.replace('co2','co2')}`;
+  div.id = `dev-${uid}`;
+  div.innerHTML = `
+    <div class="device-name">${uid}</div>
+    <div><span class="device-value" id="val-${uid}">—</span><span class="device-unit">${UNITS[dtype]||''}</span></div>
+    <div class="device-time" id="time-${uid}">等待資料...</div>
+  `;
+  return div;
+}
+
+function isAnomaly(dtype, value) {
+  if (dtype === 'temperature' && value > -10) return true;
+  if (dtype === 'power' && value > 2500) return true;
+  return false;
+}
+
+function updateDevice(msg) {
+  const { customer_id, site_id, device_type, device_uid, value, ts } = msg;
+  const key = `${customer_id}/${site_id}`;
+
+  const grid = getGrid(customer_id, site_id);
+  if (!grid) return;
+
+  let el = getDeviceEl(device_uid);
+  if (!el) {
+    el = createDeviceEl(device_uid, device_type);
+    el.classList.add(device_type === 'co2' ? 'co2' : device_type);
+    grid.appendChild(el);
+  }
+
+  const anomaly = isAnomaly(device_type, value);
+  el.classList.toggle('anomaly', anomaly);
+  document.getElementById(`val-${device_uid}`).textContent = value.toFixed(1);
+  document.getElementById(`time-${device_uid}`).textContent = new Date(ts * 1000).toLocaleTimeString('zh-TW');
+}
+
+// Chart
+const powerHistory = { labels: [], data: {} };
+const POWER_DEVICES = ['meter01', 'meter02', 'meter03', 'meter04'];
+const colors = ['#f59e0b', '#38bdf8', '#34d399', '#a78bfa'];
+
+const ctx = document.getElementById('powerChart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: POWER_DEVICES.map((uid, i) => ({
+      label: uid,
+      data: [],
+      borderColor: colors[i],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.3,
+    }))
+  },
+  options: {
+    animation: false,
+    scales: {
+      x: { display: false },
+      y: { ticks: { color: '#888' }, grid: { color: '#2a2d3a' } }
+    },
+    plugins: { legend: { labels: { color: '#888', boxWidth: 12 } } }
+  }
+});
+
+function updateChart(uid, value, ts) {
+  if (!POWER_DEVICES.includes(uid)) return;
+  const label = new Date(ts * 1000).toLocaleTimeString('zh-TW');
+  const idx = POWER_DEVICES.indexOf(uid);
+
+  if (idx === 0) {
+    chart.data.labels.push(label);
+    if (chart.data.labels.length > 60) chart.data.labels.shift();
+  }
+  chart.data.datasets[idx].data.push(value);
+  if (chart.data.datasets[idx].data.length > 60) chart.data.datasets[idx].data.shift();
+  chart.update('none');
+}
+
+// Log
+const logEl = document.getElementById('log');
+function addLog(msg, cls = 'normal') {
+  const p = document.createElement('p');
+  p.className = cls;
+  p.textContent = `[${new Date().toLocaleTimeString('zh-TW')}] ${msg}`;
+  logEl.insertBefore(p, logEl.firstChild);
+  if (logEl.children.length > 100) logEl.removeChild(logEl.lastChild);
+}
+
+// WebSocket
+function connect() {
+  const ws = new WebSocket('ws://localhost:8000/ws/dashboard');
+
+  ws.onopen = () => {
+    document.getElementById('status-dot').className = 'connected';
+    document.getElementById('status-text').textContent = '已連線';
+    addLog('WebSocket 連線成功', 'normal');
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type !== 'sensor_update') return;
+
+    updateDevice(msg);
+    if (msg.device_type === 'power') updateChart(msg.device_uid, msg.value, msg.ts);
+
+    if (isAnomaly(msg.device_type, msg.value)) {
+      addLog(`⚠ 異常！${msg.device_uid} = ${msg.value} ${UNITS[msg.device_type]||''}`, 'alert');
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('status-dot').className = '';
+    document.getElementById('status-text').textContent = '重新連線中...';
+    setTimeout(connect, 3000);
+  };
+}
+
+connect();
+</script>
+</body>
+</html>

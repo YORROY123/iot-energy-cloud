@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+paho-mqtt>=2.0.0
+influxdb-client
+sqlalchemy
+psycopg2-binary
+redis
+python-multipart
+pydantic-settings
+websockets
