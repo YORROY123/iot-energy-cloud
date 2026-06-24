@@ -99,7 +99,24 @@ def on_message(client, userdata, msg: mqtt.MQTTMessage) -> None:
         logger.warning("Bad payload on %s: %s — %s", msg.topic, msg.payload, exc)
         return
 
-    # 3. Write to InfluxDB
+    # 3. WebSocket broadcast FIRST — keep the dashboard snappy regardless of
+    #    DB write latency (InfluxDB Cloud round-trips are slow on free tier).
+    #    Lazy import avoids circular import at module load.
+    try:
+        from ws_manager import ws_manager
+        ws_manager.broadcast_from_thread({
+            "type": "sensor_update",
+            "customer_id": customer_id,
+            "site_id": site_id,
+            "device_type": device_type,
+            "device_uid": device_uid,
+            "value": value,
+            "ts": ts,
+        })
+    except Exception as exc:
+        logger.error("WS broadcast error: %s", exc)
+
+    # 4. Write to InfluxDB
     try:
         point = (
             Point("sensor_data")
@@ -162,21 +179,6 @@ def on_message(client, userdata, msg: mqtt.MQTTMessage) -> None:
     finally:
         if db:
             db.close()
-
-    # 6. WebSocket broadcast (lazy import avoids circular import at module load)
-    try:
-        from ws_manager import ws_manager
-        ws_manager.broadcast_from_thread({
-            "type": "sensor_update",
-            "customer_id": customer_id,
-            "site_id": site_id,
-            "device_type": device_type,
-            "device_uid": device_uid,
-            "value": value,
-            "ts": ts,
-        })
-    except Exception as exc:
-        logger.error("WS broadcast error: %s", exc)
 
 
 # ---------------------------------------------------------------------------

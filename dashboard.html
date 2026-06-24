@@ -236,17 +236,40 @@ const _params = new URLSearchParams(window.location.search);
 const _backendBase = (_params.get('backend') || 'http://localhost:8000').replace(/\/$/, '');
 const _wsURL = _backendBase.replace(/^http/, 'ws') + '/ws/dashboard';
 
+// 斷線偵測：資料正常每 3 秒一筆，若超過 STALE_MS 沒收到任何訊息，
+// 視為半開連線（Render 代理層常見），主動關閉並重連。
+const STALE_MS = 10000;
+let _lastMsgTime = 0;
+let _watchdog = null;
+let _currentWs = null;
+
 function connect() {
   const ws = new WebSocket(_wsURL);
+  _currentWs = ws;
+  _lastMsgTime = Date.now();
 
   ws.onopen = () => {
     document.getElementById('status-dot').className = 'connected';
     document.getElementById('status-text').textContent = '已連線';
     addLog('WebSocket 連線成功', 'normal');
+    _lastMsgTime = Date.now();
+
+    // 啟動看門狗
+    if (_watchdog) clearInterval(_watchdog);
+    _watchdog = setInterval(() => {
+      if (Date.now() - _lastMsgTime > STALE_MS) {
+        addLog('連線無回應，重新連線中…', 'alert');
+        document.getElementById('status-dot').className = '';
+        document.getElementById('status-text').textContent = '連線逾時，重連中...';
+        try { ws.close(); } catch (_) {}
+      }
+    }, 3000);
   };
 
   ws.onmessage = (e) => {
+    _lastMsgTime = Date.now();
     const msg = JSON.parse(e.data);
+    if (msg.type === 'ping') return;       // 心跳，僅用於更新存活時間
     if (msg.type !== 'sensor_update') return;
 
     updateDevice(msg);
@@ -258,10 +281,13 @@ function connect() {
   };
 
   ws.onclose = () => {
+    if (_watchdog) { clearInterval(_watchdog); _watchdog = null; }
     document.getElementById('status-dot').className = '';
     document.getElementById('status-text').textContent = '重新連線中...';
-    setTimeout(connect, 3000);
+    setTimeout(connect, 2000);
   };
+
+  ws.onerror = () => { try { ws.close(); } catch (_) {} };
 }
 
 connect();
