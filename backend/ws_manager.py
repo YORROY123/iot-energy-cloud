@@ -32,6 +32,10 @@ class ConnectionManager:
     def disconnect(self, client_id: str) -> None:
         self._connections.pop(client_id, None)
 
+    def count(self) -> int:
+        """目前連線中的 WebSocket 數量。"""
+        return len(self._connections)
+
     async def broadcast(self, msg: dict) -> None:
         dead: list[str] = []
         for client_id, ws in list(self._connections.items()):

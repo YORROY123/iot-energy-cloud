@@ -19,10 +19,16 @@
   header h1 { font-size: 20px; color: #fff; }
   #status-dot {
     width: 10px; height: 10px; border-radius: 50%;
-    background: #555; margin-left: auto;
+    background: #555;
   }
   #status-dot.connected { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
   #status-text { font-size: 13px; color: #888; }
+  #online-badge {
+    margin-left: auto; font-size: 13px; color: #888;
+    background: #0f1117; border: 1px solid #2a2d3a;
+    border-radius: 14px; padding: 4px 12px;
+  }
+  #online-badge b { color: #22c55e; }
 
   .sites { display: flex; gap: 16px; padding: 20px; flex-wrap: wrap; }
 
@@ -121,6 +127,7 @@
 <header>
   <div style="width:32px;height:32px;background:#2563eb;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;">i</div>
   <h1>IoT Energy Cloud</h1>
+  <span id="online-badge" title="目前同時在線觀看人數">👁 線上 <b id="online-count">—</b></span>
   <span id="status-text">連線中...</span>
   <div id="status-dot"></div>
 </header>
@@ -314,6 +321,12 @@ function connect() {
     addLog('WebSocket 連線成功', 'normal');
     _lastMsgTime = Date.now();
 
+    // 主動抓一次目前線上人數
+    fetch(`${_backendBase}/stats`)
+      .then(r => r.json())
+      .then(d => { document.getElementById('online-count').textContent = d.online; })
+      .catch(() => {});
+
     // 啟動看門狗
     if (_watchdog) clearInterval(_watchdog);
     _watchdog = setInterval(() => {
@@ -330,6 +343,10 @@ function connect() {
     _lastMsgTime = Date.now();
     const msg = JSON.parse(e.data);
     if (msg.type === 'ping') return;       // 心跳，僅用於更新存活時間
+    if (msg.type === 'online_count') {
+      document.getElementById('online-count').textContent = msg.count;
+      return;
+    }
     if (msg.type !== 'sensor_update') return;
 
     updateDevice(msg);

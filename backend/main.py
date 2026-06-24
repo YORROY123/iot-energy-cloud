@@ -161,9 +161,17 @@ def health():
     return {"status": "ok", "demo_mode": DEMO_MODE}
 
 
+@app.get("/stats")
+def stats():
+    """目前線上看板人數（WebSocket 連線數）。"""
+    return {"online": ws_manager.count()}
+
+
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str) -> None:
     await ws_manager.connect(client_id, websocket)
+    # 通知所有人最新線上人數
+    await ws_manager.broadcast({"type": "online_count", "count": ws_manager.count()})
     try:
         while True:
             try:
@@ -175,3 +183,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str) -> None:
         ws_manager.disconnect(client_id)
     except Exception:
         ws_manager.disconnect(client_id)
+    finally:
+        ws_manager.disconnect(client_id)
+        # 離線後再廣播一次更新人數
+        try:
+            await ws_manager.broadcast({"type": "online_count", "count": ws_manager.count()})
+        except Exception:
+            pass
