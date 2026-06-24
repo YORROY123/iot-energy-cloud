@@ -31,3 +31,4 @@ desktop.ini
 *.key
 *.crt
 secrets/
+私人憑證記錄*.md
