@@ -2,16 +2,79 @@
 
 > 多租戶 AIoT 能源監控 SaaS 平台的開源實作參考，涵蓋從現場感測器到雲端看板的完整技術棧。
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2563eb?style=flat-square)](https://YORROY123.github.io/iot-energy-cloud/dashboard.html)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2563eb?style=flat-square)](https://yorroy123.github.io/iot-energy-cloud/dashboard.html)
 [![Backend API](https://img.shields.io/badge/Backend%20API-Swagger%20UI-46E3B7?style=flat-square)](https://iot-energy-cloud.onrender.com/docs)
 [![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey?style=flat-square)](LICENSE)
 
-> **Live Demo 首次載入需等約 30 秒**（免費主機冷啟動），之後即時資料每 3 秒更新一次。
+---
+
+## 🚀 線上 Demo
+
+| 入口 | 網址 |
+|---|---|
+| **即時監控看板** | **https://yorroy123.github.io/iot-energy-cloud/dashboard.html** |
+| **後端 API 文件（Swagger）** | https://iot-energy-cloud.onrender.com/docs |
+
+> ⚠️ **首次載入請等約 30 秒**：後端在免費主機上，閒置會休眠，第一次訪問需冷啟動。  
+> 看到右上角綠點「已連線」後，12 台虛擬設備的數值會每 3 秒更新一次（含 1% 機率的異常紅色警示）。
+
+### Demo 採用的免費雲端資源
+
+整套 Demo 不花一毛錢，由以下免費服務組成。資料**真的走 MQTT 協定**（公開 broker 出去再訂閱收回），而非程式內部自產自銷：
+
+```
+                          ┌─────────────────────────────────────────────┐
+                          │  使用者瀏覽器                                │
+                          │  https://yorroy123.github.io/...            │
+                          └───────────────────┬─────────────────────────┘
+                                              │ WebSocket (即時推播)
+                  ┌───────────────────────────┴───────────────────────────┐
+                  │  GitHub Pages（免費）                                  │
+                  │  ・託管 dashboard.html 靜態看板                        │
+                  │  ・GitHub Actions 自動部署                             │
+                  └───────────────────────────┬───────────────────────────┘
+                                              │
+                                              ▼
+   ┌──────────────────────────────────────────────────────────────────────────┐
+   │  Render.com（免費 Web Service）                                            │
+   │  https://iot-energy-cloud.onrender.com                                     │
+   │                                                                            │
+   │  ┌────────────────────┐         ┌────────────────────┐                    │
+   │  │ 發布執行緒          │         │ 訂閱執行緒          │                    │
+   │  │ (模擬 12 台設備)    │         │ (接收 → 寫庫 → 推播)│                    │
+   │  └─────────┬──────────┘         └──────────▲─────────┘                    │
+   └────────────│───────────────────────────────│──────────────────────────────┘
+                │ publish (QoS 1)               │ subscribe
+                ▼                               │
+   ┌────────────────────────────────────────────┴─────────────┐
+   │  HiveMQ 公開 MQTT Broker（免費，免帳號）                  │
+   │  broker.hivemq.com:1883                                    │
+   └───────────────────────────────────────────────────────────┘
+                │
+                │ 後端訂閱收到資料後，分別寫入三個免費資料服務：
+                ▼
+   ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
+   │ InfluxDB Cloud（免費）│  │ Render PostgreSQL    │  │ Upstash Redis（免費）│
+   │ 時序資料（保留 30 天）│  │ （免費 90 天）       │  │ 排程快取             │
+   │ 溫度/電力/濕度/CO₂    │  │ 設備上線狀態         │  │ 10,000 指令/天       │
+   └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
+```
+
+| 服務 | 角色 | 免費方案限制 |
+|---|---|---|
+| [GitHub Pages](https://pages.github.com/) | 託管前端看板 | 無實質限制 |
+| [Render.com](https://render.com) | 後端 FastAPI + PostgreSQL | 閒置 15 分鐘休眠、PG 保留 90 天 |
+| [HiveMQ 公開 Broker](https://www.hivemq.com/public-mqtt-broker/) | MQTT 訊息中介 | 公開共用、無 TLS |
+| [InfluxDB Cloud](https://www.influxdata.com/products/influxdb-cloud/) | 時序資料庫 | 資料保留 30 天 |
+| [Upstash](https://upstash.com) | Redis 排程快取 | 10,000 指令/天 |
+
+> 完整自架步驟（含一鍵 Docker Compose）見 [docs/06-免費雲端部署.md](docs/06-免費雲端部署.md)
 
 ---
 
 ## 目錄
 
+- [線上 Demo](#-線上-demo)
 - [專案背景](#專案背景)
 - [系統架構總覽](#系統架構總覽)
 - [功能特色](#功能特色)
