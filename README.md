@@ -2,6 +2,12 @@
 
 > 多租戶 AIoT 能源監控 SaaS 平台的開源實作參考，涵蓋從現場感測器到雲端看板的完整技術棧。
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2563eb?style=flat-square)](https://YORROY123.github.io/iot-energy-cloud/dashboard.html)
+[![Backend API](https://img.shields.io/badge/Backend%20API-Swagger%20UI-46E3B7?style=flat-square)](https://iot-energy-cloud.onrender.com/docs)
+[![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey?style=flat-square)](LICENSE)
+
+> **Live Demo 首次載入需等約 30 秒**（免費主機冷啟動），之後即時資料每 3 秒更新一次。
+
 ---
 
 ## 目錄
@@ -197,6 +203,7 @@ WS   /ws/{client_id}                    即時資料推播
 | [03-API文件](docs/03-API文件.md) | 所有端點說明、請求/回應範例 |
 | [04-開發指南](docs/04-開發指南.md) | 新增設備類型、擴充告警、前端改造 |
 | [05-技術探討](docs/05-技術探討.md) | 為何選 EMQX、InfluxDB vs TimescaleDB、QoS 策略 |
+| [06-免費雲端部署](docs/06-免費雲端部署.md) | Render + InfluxDB Cloud + Upstash + GitHub Pages 零成本 Demo |
 
 ---
 

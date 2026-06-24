@@ -1,0 +1,32 @@
+databases:
+  - name: iot-energy-cloud-db
+    databaseName: iess_db
+    user: iess
+    plan: free
+
+services:
+  - type: web
+    name: iot-energy-cloud
+    env: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DEMO_MODE
+        value: "true"
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: iot-energy-cloud-db
+          property: connectionString
+      - key: INFLUX_URL
+        sync: false   # 填入 InfluxDB Cloud URL
+      - key: INFLUX_TOKEN
+        sync: false   # 填入 InfluxDB Cloud Token
+      - key: INFLUX_ORG
+        sync: false   # 填入 InfluxDB Cloud Org
+      - key: INFLUX_BUCKET
+        value: realtime
+      - key: REDIS_URL
+        sync: false   # 填入 Upstash Redis URL

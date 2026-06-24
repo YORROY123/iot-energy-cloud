@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>IESS 雲端智能平台</title>
+<title>IoT Energy Cloud — 即時監控看板</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -90,7 +90,7 @@
 
 <header>
   <div style="width:32px;height:32px;background:#2563eb;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;">i</div>
-  <h1>IESS 雲端智能平台</h1>
+  <h1>IoT Energy Cloud</h1>
   <span id="status-text">連線中...</span>
   <div id="status-dot"></div>
 </header>
@@ -231,9 +231,13 @@ function addLog(msg, cls = 'normal') {
   if (logEl.children.length > 100) logEl.removeChild(logEl.lastChild);
 }
 
-// WebSocket
+// WebSocket — URL 可透過 ?backend=https://your-service.onrender.com 覆寫
+const _params = new URLSearchParams(window.location.search);
+const _backendBase = (_params.get('backend') || 'http://localhost:8000').replace(/\/$/, '');
+const _wsURL = _backendBase.replace(/^http/, 'ws') + '/ws/dashboard';
+
 function connect() {
-  const ws = new WebSocket('ws://localhost:8000/ws/dashboard');
+  const ws = new WebSocket(_wsURL);
 
   ws.onopen = () => {
     document.getElementById('status-dot').className = 'connected';
