@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IoT Energy Cloud — 後台管理</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1117; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; }
+
+  header {
+    background: #1a1d27; padding: 16px 24px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid #2a2d3a;
+  }
+  header .logo {
+    width: 32px; height: 32px; background: #7c3aed; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; font-weight: bold;
+  }
+  header h1 { font-size: 18px; color: #fff; }
+  header .nav { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  header .nav a { color: #888; text-decoration: none; font-size: 13px; }
+  header .nav a:hover { color: #e0e0e0; }
+  #refresh-info { font-size: 12px; color: #555; }
+
+  .container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card {
+    background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 12px; padding: 18px;
+  }
+  .card .label { font-size: 12px; color: #888; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .card .value { font-size: 30px; font-weight: bold; color: #fff; }
+  .card .sub { font-size: 12px; color: #666; margin-top: 4px; }
+  .card.accent .value { color: #22c55e; }
+  .card.warn .value { color: #f59e0b; }
+  .card.purple .value { color: #a78bfa; }
+
+  .section-title { font-size: 14px; color: #888; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+  table { width: 100%; border-collapse: collapse; background: #1a1d27; border-radius: 12px; overflow: hidden; }
+  th, td { padding: 12px 16px; text-align: left; font-size: 13px; border-bottom: 1px solid #2a2d3a; }
+  th { color: #888; font-weight: 600; background: #161922; }
+  td { color: #ddd; }
+  tr:last-child td { border-bottom: none; }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+  .badge.online { background: rgba(34,197,94,0.15); color: #22c55e; }
+  .badge.offline { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+  .type-temperature { color: #38bdf8; }
+  .type-power { color: #f59e0b; }
+  .type-humidity { color: #34d399; }
+  .type-co2 { color: #a78bfa; }
+
+  #error { color: #ef4444; font-size: 13px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">⚙</div>
+  <h1>IoT Energy Cloud — 後台管理</h1>
+  <div class="nav">
+    <a href="dashboard.html">→ 即時看板</a>
+    <span id="refresh-info">每 5 秒自動更新</span>
+  </div>
+</header>
+
+<div class="container">
+  <div id="error"></div>
+
+  <div class="cards">
+    <div class="card accent">
+      <div class="label">線上觀看人數</div>
+      <div class="value" id="online-viewers">—</div>
+      <div class="sub">目前同時開啟看板的人</div>
+    </div>
+    <div class="card">
+      <div class="label">設備上線</div>
+      <div class="value"><span id="devices-online">—</span> / <span id="device-count">—</span></div>
+      <div class="sub">30 秒內有回報視為上線</div>
+    </div>
+    <div class="card purple">
+      <div class="label">近 24 小時資料量</div>
+      <div class="value" id="points-24h">—</div>
+      <div class="sub">寫入 InfluxDB 的總筆數</div>
+    </div>
+    <div class="card warn">
+      <div class="label">執行模式</div>
+      <div class="value" id="mode" style="font-size:20px;">—</div>
+      <div class="sub" id="server-time">—</div>
+    </div>
+  </div>
+
+  <div class="section-title">設備狀態清單</div>
+  <table>
+    <thead>
+      <tr>
+        <th>客戶</th><th>門市</th><th>設備</th><th>類型</th><th>最新值</th><th>最後回報</th><th>狀態</th>
+      </tr>
+    </thead>
+    <tbody id="device-rows">
+      <tr><td colspan="7" style="text-align:center; color:#666;">載入中…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+const _params = new URLSearchParams(window.location.search);
+const _backendBase = (_params.get('backend') || 'http://localhost:8000').replace(/\/$/, '');
+
+const UNITS = { temperature: '°C', power: 'W', humidity: '%', co2: 'ppm' };
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('zh-TW');
+}
+
+function relTime(iso) {
+  if (!iso) return '';
+  const sec = Math.round((Date.now() - new Date(iso)) / 1000);
+  if (sec < 60) return `${sec} 秒前`;
+  if (sec < 3600) return `${Math.round(sec/60)} 分前`;
+  return `${Math.round(sec/3600)} 小時前`;
+}
+
+async function refresh() {
+  const errEl = document.getElementById('error');
+  try {
+    const res = await fetch(`${_backendBase}/admin/overview`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    errEl.textContent = '';
+
+    document.getElementById('online-viewers').textContent = d.online_viewers;
+    document.getElementById('devices-online').textContent = d.devices_online;
+    document.getElementById('device-count').textContent = d.device_count;
+    document.getElementById('points-24h').textContent = d.total_points_24h.toLocaleString();
+    document.getElementById('mode').textContent = d.demo_mode ? 'DEMO（模擬）' : '正式';
+    document.getElementById('server-time').textContent = '伺服器時間 ' + fmtTime(d.server_time);
+
+    const rows = d.devices.map(dev => `
+      <tr>
+        <td>${dev.customer_id}</td>
+        <td>${dev.site_id}</td>
+        <td>${dev.device_uid}</td>
+        <td class="type-${dev.device_type}">${dev.device_type}</td>
+        <td><b>${dev.value}</b> ${UNITS[dev.device_type]||''}</td>
+        <td>${relTime(dev.last_seen)}</td>
+        <td><span class="badge ${dev.is_online?'online':'offline'}">${dev.is_online?'上線':'離線'}</span></td>
+      </tr>
+    `).join('');
+    document.getElementById('device-rows').innerHTML = rows ||
+      '<tr><td colspan="7" style="text-align:center; color:#666;">尚無資料</td></tr>';
+  } catch (err) {
+    errEl.textContent = `無法連線後端：${err.message}（免費主機可能冷啟動中，請稍候）`;
+  }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

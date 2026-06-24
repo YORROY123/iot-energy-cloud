@@ -15,6 +15,7 @@
 | 入口 | 網址 |
 |---|---|
 | **即時監控看板** | **https://yorroy123.github.io/iot-energy-cloud/dashboard.html** |
+| **後台管理介面** | **https://yorroy123.github.io/iot-energy-cloud/admin.html** |
 | **後端 API 文件（Swagger）** | https://iot-energy-cloud.onrender.com/docs |
 
 > ⚠️ **首次載入請等約 30 秒**：後端在免費主機上，閒置會休眠，第一次訪問需冷啟動。  

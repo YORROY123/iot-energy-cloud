@@ -10,7 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import (
-    INFLUX_BUCKET, INFLUX_ORG, SessionLocal, init_db, write_api,
+    INFLUX_BUCKET, INFLUX_ORG, SessionLocal, init_db, write_api, query_api,
 )
 from influxdb_client import Point, WritePrecision
 import models  # registers all ORM models with Base.metadata before init_db()
@@ -165,6 +165,76 @@ def health():
 def stats():
     """目前線上看板人數（WebSocket 連線數）。"""
     return {"online": ws_manager.count()}
+
+
+# 後端啟動時間，用於計算 uptime
+_START_TS = None
+
+
+@app.get("/admin/overview")
+def admin_overview():
+    """
+    後台總覽：彙總系統狀態、所有設備最新值、近 24 小時資料量。
+    直接查 InfluxDB（不依賴 PostgreSQL）。
+    """
+    # 1. 每台設備最新值（過去 10 分鐘內的 last）
+    devices = []
+    online_devices = 0
+    try:
+        flux_latest = (
+            f'from(bucket: "{INFLUX_BUCKET}")\n'
+            f'  |> range(start: -10m)\n'
+            f'  |> filter(fn: (r) => r["_measurement"] == "sensor_data")\n'
+            f'  |> group(columns: ["device_uid", "device_type", "customer_id", "site_id"])\n'
+            f'  |> last()'
+        )
+        now = datetime.now(timezone.utc)
+        for table in query_api.query(flux_latest):
+            for rec in table.records:
+                t = rec.get_time()
+                age = (now - t).total_seconds() if t else 9999
+                is_online = age < 30
+                if is_online:
+                    online_devices += 1
+                devices.append({
+                    "device_uid": rec.values.get("device_uid", ""),
+                    "device_type": rec.values.get("device_type", ""),
+                    "customer_id": rec.values.get("customer_id", ""),
+                    "site_id": rec.values.get("site_id", ""),
+                    "value": round(float(rec.get_value()), 2),
+                    "last_seen": t.isoformat() if t else None,
+                    "is_online": is_online,
+                })
+    except Exception as exc:
+        return {"error": str(exc), "online_viewers": ws_manager.count()}
+
+    devices.sort(key=lambda d: (d["customer_id"], d["site_id"], d["device_uid"]))
+
+    # 2. 近 24 小時總資料筆數
+    total_points_24h = 0
+    try:
+        flux_count = (
+            f'from(bucket: "{INFLUX_BUCKET}")\n'
+            f'  |> range(start: -24h)\n'
+            f'  |> filter(fn: (r) => r["_measurement"] == "sensor_data")\n'
+            f'  |> count()\n'
+            f'  |> sum()'
+        )
+        for table in query_api.query(flux_count):
+            for rec in table.records:
+                total_points_24h += int(rec.get_value() or 0)
+    except Exception:
+        pass
+
+    return {
+        "online_viewers": ws_manager.count(),
+        "demo_mode": DEMO_MODE,
+        "device_count": len(devices),
+        "devices_online": online_devices,
+        "total_points_24h": total_points_24h,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+        "devices": devices,
+    }
 
 
 @app.websocket("/ws/{client_id}")

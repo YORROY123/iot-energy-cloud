@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'dashboard.html'
+      - 'admin.html'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -33,6 +34,7 @@ jobs:
         run: |
           if [ -n "$BACKEND_URL" ]; then
             sed -i "s|http://localhost:8000|$BACKEND_URL|g" dashboard.html
+            sed -i "s|http://localhost:8000|$BACKEND_URL|g" admin.html
           fi
 
       - name: Setup Pages

@@ -301,7 +301,10 @@ function addLog(msg, cls = 'normal') {
 // WebSocket — URL 可透過 ?backend=https://your-service.onrender.com 覆寫
 const _params = new URLSearchParams(window.location.search);
 const _backendBase = (_params.get('backend') || 'http://localhost:8000').replace(/\/$/, '');
-const _wsURL = _backendBase.replace(/^http/, 'ws') + '/ws/dashboard';
+// 每個分頁產生獨立 client_id，否則多個觀眾會共用同一個 key 互相覆蓋，
+// 導致線上人數永遠是 1。
+const _clientId = 'dash-' + Math.random().toString(36).slice(2, 10);
+const _wsURL = _backendBase.replace(/^http/, 'ws') + '/ws/' + _clientId;
 
 // 斷線偵測：資料正常每 3 秒一筆，若超過 STALE_MS 沒收到任何訊息，
 // 視為半開連線（Render 代理層常見），主動關閉並重連。
