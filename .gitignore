@@ -32,3 +32,6 @@ desktop.ini
 *.crt
 secrets/
 私人憑證記錄*.md
+
+# 本地專用，不上傳
+CLAUDE.md

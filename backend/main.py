@@ -5,6 +5,7 @@ import threading
 import time as time_module
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware

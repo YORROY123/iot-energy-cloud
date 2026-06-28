@@ -1,0 +1,27 @@
+# Fly.io 設定檔 — iot-energy-cloud 後端
+# 部署：在 backend/ 目錄執行  fly deploy
+app = "iot-energy-cloud"
+primary_region = "nrt"   # nrt=東京（離台灣最近）；也可改 hkg=香港
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # 沒人連線時自動關機、有人連線時自動開機 → 跟 Render 免費版「閒置休眠」一樣，
+  # 把費用壓到接近 $0。要 24 小時不間斷產生資料，把 min_machines_running 改成 1。
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"   # InfluxDB + SQLAlchemy + psutil 同時跑，256mb 容易 OOM
