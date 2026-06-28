@@ -1,0 +1,19 @@
+name: keepalive
+
+# 定時打後端 /health，避免 Hugging Face Space 閒置 48 小時後休眠。
+# 注意：GitHub 排程在尖峰時可能延遲幾分鐘，但對「保持喚醒」綽綽有餘。
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # 每 10 分鐘
+  workflow_dispatch:          # 也可在 Actions 頁手動觸發
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping HF Space /health
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" -m 30 \
+            https://yorroy123-iot-energy-cloud.hf.space/health)
+          echo "HTTP $code"
+          test "$code" = "200"
