@@ -298,7 +298,7 @@ function addLog(msg, cls = 'normal') {
   if (logEl.children.length > 100) logEl.removeChild(logEl.lastChild);
 }
 
-// WebSocket — URL 可透過 ?backend=https://your-service.onrender.com 覆寫
+// WebSocket — URL 可透過 ?backend=https://yorroy123-iot-energy-cloud.hf.space 覆寫
 const _params = new URLSearchParams(window.location.search);
 const _backendBase = (_params.get('backend') || 'http://localhost:8000').replace(/\/$/, '');
 // 每個分頁產生獨立 client_id，否則多個觀眾會共用同一個 key 互相覆蓋，

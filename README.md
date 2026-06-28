@@ -2,8 +2,8 @@
 
 > 多租戶 AIoT 能源監控 SaaS 平台的開源實作參考，涵蓋從現場感測器到雲端看板的完整技術棧。
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2563eb?style=flat-square)](https://yorroy123.github.io/iot-energy-cloud/dashboard.html)
-[![Backend API](https://img.shields.io/badge/Backend%20API-Swagger%20UI-46E3B7?style=flat-square)](https://iot-energy-cloud.onrender.com/docs)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2563eb?style=flat-square)](https://yorroy123.github.io/iot-energy-cloud/dashboard.html?backend=https://yorroy123-iot-energy-cloud.hf.space)
+[![Backend API](https://img.shields.io/badge/Backend%20API-Swagger%20UI-46E3B7?style=flat-square)](https://yorroy123-iot-energy-cloud.hf.space/docs)
 [![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey?style=flat-square)](LICENSE)
 
 ---
@@ -14,12 +14,16 @@
 
 | 入口 | 網址 |
 |---|---|
-| **即時監控看板** | **https://yorroy123.github.io/iot-energy-cloud/dashboard.html** |
-| **後台管理介面** | **https://yorroy123.github.io/iot-energy-cloud/admin.html** |
-| **後端 API 文件（Swagger）** | https://iot-energy-cloud.onrender.com/docs |
+| **即時監控看板** | **https://yorroy123.github.io/iot-energy-cloud/dashboard.html?backend=https://yorroy123-iot-energy-cloud.hf.space** |
+| **後台管理介面** | **https://yorroy123.github.io/iot-energy-cloud/admin.html?backend=https://yorroy123-iot-energy-cloud.hf.space** |
+| **後端 API 文件（Swagger）** | https://yorroy123-iot-energy-cloud.hf.space/docs |
 
-> ⚠️ **首次載入請等約 30 秒**：後端在免費主機上，閒置會休眠，第一次訪問需冷啟動。  
+> 💡 看板/後台是 GitHub Pages 靜態頁，靠網址參數 `?backend=` 指定後端；直接開不帶參數的網址會連到本機而看到空白。
 > 看到右上角綠點「已連線」後，12 台虛擬設備的數值會每 3 秒更新一次（含 1% 機率的異常紅色警示）。
+
+> 🆕 **2026-06 改版**：後端已從 Render 搬到 **Hugging Face Spaces**（免綁卡），資料庫改用 **Neon（us-east）**
+> 與後端、InfluxDB 同區，消除跨區延遲瓶頸；並以 GitHub Actions 定時保活避免休眠。
+> 詳見 [docs/13-HF版部署與架構改善.md](docs/13-HF版部署與架構改善.md)。
 
 ### 後台管理介面
 
@@ -41,49 +45,53 @@
 ```
                           ┌─────────────────────────────────────────────┐
                           │  使用者瀏覽器                                │
-                          │  https://yorroy123.github.io/...            │
+                          │  github.io/...dashboard.html?backend=...     │
                           └───────────────────┬─────────────────────────┘
                                               │ WebSocket (即時推播)
                   ┌───────────────────────────┴───────────────────────────┐
                   │  GitHub Pages（免費）                                  │
-                  │  ・託管 dashboard.html 靜態看板                        │
-                  │  ・GitHub Actions 自動部署                             │
+                  │  ・託管 dashboard.html / admin.html 靜態看板           │
+                  │  ・GitHub Actions：自動部署 + 每10分鐘保活 ping        │
                   └───────────────────────────┬───────────────────────────┘
                                               │
                                               ▼
-   ┌──────────────────────────────────────────────────────────────────────────┐
-   │  Render.com（免費 Web Service）                                            │
-   │  https://iot-energy-cloud.onrender.com                                     │
-   │                                                                            │
-   │  ┌────────────────────┐         ┌────────────────────┐                    │
-   │  │ 發布執行緒          │         │ 訂閱執行緒          │                    │
-   │  │ (模擬 12 台設備)    │         │ (接收 → 寫庫 → 推播)│                    │
-   │  └─────────┬──────────┘         └──────────▲─────────┘                    │
-   └────────────│───────────────────────────────│──────────────────────────────┘
-                │ publish (QoS 1)               │ subscribe
-                ▼                               │
-   ┌────────────────────────────────────────────┴─────────────┐
-   │  HiveMQ 公開 MQTT Broker（免費，免帳號）                  │
-   │  broker.hivemq.com:1883                                    │
-   └───────────────────────────────────────────────────────────┘
-                │
-                │ 後端訂閱收到資料後，分別寫入三個免費資料服務：
-                ▼
-   ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
-   │ InfluxDB Cloud（免費）│  │ Render PostgreSQL    │  │ Upstash Redis（免費）│
-   │ 時序資料（保留 30 天）│  │ （免費 90 天）       │  │ 排程快取             │
-   │ 溫度/電力/濕度/CO₂    │  │ 設備上線狀態         │  │ 10,000 指令/天       │
-   └──────────────────────┘  └──────────────────────┘  └──────────────────────┘
+   ┌══════════════════════════════ AWS us-east-1（同區，低延遲）══════════════════════════┐
+   ║                                                                                      ║
+   ║  ┌──────────────────────────────────────────────────────────────────────────┐      ║
+   ║  │  Hugging Face Spaces（免費・免綁卡・Docker）                              │      ║
+   ║  │  https://yorroy123-iot-energy-cloud.hf.space                               │      ║
+   ║  │  ┌────────────────────┐         ┌────────────────────┐                    │      ║
+   ║  │  │ 發布執行緒          │         │ 訂閱執行緒          │                    │      ║
+   ║  │  │ (模擬 12 台設備)    │         │ (接收 → 寫庫 → 推播)│                    │      ║
+   ║  │  └─────────┬──────────┘         └──────────▲─────────┘                    │      ║
+   ║  └────────────│───────────────────────────────│──────────────────────────────┘      ║
+   ║               │ publish(QoS1)→ broker.hivemq.com:1883 →subscribe              │      ║
+   ║               │                               │                                      ║
+   ║               ▼  訂閱收到後同步寫入↓           │                                      ║
+   ║  ┌──────────────────────┐  ┌──────────────────────┐                                  ║
+   ║  │ InfluxDB Cloud        │  │ Neon PostgreSQL      │   ← 同在 us-east，               ║
+   ║  │ us-east-1（時序資料） │  │ us-east-1（設備狀態）│      DB 來回 ~1-5ms              ║
+   ║  └──────────────────────┘  └──────────────────────┘                                  ║
+   ╚══════════════════════════════════════════════════════════════════════════════════════╝
+                                   ┌──────────────────────┐
+                                   │ Upstash Redis（快取）│
+                                   └──────────────────────┘
 ```
+
+> 🔑 **架構重點**：後端（HF）、時序庫（InfluxDB）、關聯庫（Neon）三者**同在 us-east-1**，
+> 後端每筆訊息寫庫的網路來回從跨區 ~80ms 降到同區 ~1-5ms，吞吐量足以撐住每秒 4 筆、3 秒即時更新。
 
 | 服務 | 角色 | 免費方案限制 |
 |---|---|---|
-| [GitHub Pages](https://pages.github.com/) | 託管前端看板 | 無實質限制 |
-| [Render.com](https://render.com) | 後端 FastAPI + PostgreSQL | 閒置 15 分鐘休眠、PG 保留 90 天 |
+| [GitHub Pages](https://pages.github.com/) | 託管前端看板 + 保活 cron | 無實質限制 |
+| [Hugging Face Spaces](https://huggingface.co/docs/hub/spaces) | 後端 FastAPI（Docker） | 免綁卡、閒置 48 小時休眠（用 cron 保活）|
+| [Neon](https://neon.tech) | PostgreSQL（設備狀態/告警）| 免綁卡、可選 us-east 區域 |
 | [HiveMQ 公開 Broker](https://www.hivemq.com/public-mqtt-broker/) | MQTT 訊息中介 | 公開共用、無 TLS |
-| [InfluxDB Cloud](https://www.influxdata.com/products/influxdb-cloud/) | 時序資料庫 | 資料保留 30 天 |
+| [InfluxDB Cloud](https://www.influxdata.com/products/influxdb-cloud/) | 時序資料庫 | 資料保留 30 天、us-east-1 |
 | [Upstash](https://upstash.com) | Redis 排程快取 | 10,000 指令/天 |
 
+> 📦 舊版（Render）設定仍保留在 `render.yaml`，可隨時回切；遷移細節與**改善成效數據**見
+> [docs/13-HF版部署與架構改善.md](docs/13-HF版部署與架構改善.md)。
 > 完整自架步驟（含一鍵 Docker Compose）見 [docs/06-免費雲端部署.md](docs/06-免費雲端部署.md)
 
 ---
@@ -289,6 +297,7 @@ WS   /ws/{client_id}                    即時資料推播
 | [10-InfluxDB資料庫詳解](docs/10-InfluxDB資料庫詳解.md) | 時序資料模型、寫入/Flux 查詢、降採樣、保留策略 |
 | [11-後台管理介面](docs/11-後台管理介面.md) | 後台監控（人數/CPU/RAM）、線上連線與踢人、管理金鑰 |
 | [12-付費版成本與架構升級](docs/12-付費版成本與架構升級.md) | 三階段月成本試算、需修改的程式清單、架構演進路線 |
+| [13-HF版部署與架構改善](docs/13-HF版部署與架構改善.md) | 🆕 後端搬到 Hugging Face、Postgres 改 Neon us-east、跨區延遲改善前後實測數據 |
 
 ---
 
